@@ -33,7 +33,6 @@ extern crate serde;
 extern crate regex;
 
 #[cfg(test)] extern crate serde_json;
-#[cfg(test)] #[macro_use] extern crate serde_derive;
 
 use std::fmt;
 use regex::Regex;
