@@ -35,17 +35,23 @@ extern crate regex;
 #[cfg(test)] extern crate serde_json;
 
 use std::fmt;
+use std::ops::{Deref, DerefMut};
 use regex::Regex;
 
 use serde::de::{Visitor, Error};
-use serde::{Deserializer, Serializer};
+use serde::{Deserializer, Serializer, Deserialize, Serialize};
+
+/// A wrapper type which implements `Serialize` and `Deserialize` for
+/// types involving `Regex`
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct Serde<T>(pub T);
 
 
 struct RegexVisitor;
 
 
 impl<'a> Visitor<'a> for RegexVisitor {
-    type Value = Regex;
+    type Value = Serde<Regex>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("valid regular expression")
@@ -53,20 +59,105 @@ impl<'a> Visitor<'a> for RegexVisitor {
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
         where E: Error
     {
-        Regex::new(value).map_err(E::custom)
+        Regex::new(value).map_err(E::custom).map(Serde)
     }
 }
 
+impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
+    fn deserialize<D>(d: D) -> Result<Serde<Option<Regex>>, D::Error>
+        where D: Deserializer<'de>
+    {
+        match Option::<Serde<Regex>>::deserialize(d)? {
+            Some(Serde(regex)) => Ok(Serde(Some(regex))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Serde<Regex> {
+    fn deserialize<D>(d: D) -> Result<Serde<Regex>, D::Error>
+        where D: Deserializer<'de>
+    {
+        d.deserialize_str(RegexVisitor)
+    }
+}
+
+
 /// Deserialize function, see crate docs to see how to use it
-pub fn deserialize<'de, D>(deserializer: D) -> Result<Regex, D::Error>
+pub fn deserialize<'de, T, D>(deserializer: D)
+    -> Result<T, D::Error>
     where D: Deserializer<'de>,
+          Serde<T>: Deserialize<'de>,
 {
-    deserializer.deserialize_str(RegexVisitor)
+    Serde::deserialize(deserializer).map(|x| x.0)
 }
 
 /// Deserialize function, see crate docs to see how to use it
-pub fn serialize<S>(value: &Regex, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer,
+          for<'a> Serde<&'a T>: Serialize,
 {
-    serializer.serialize_str(value.as_str())
+    Serde(value).serialize(serializer)
+}
+
+impl<T> Deref for Serde<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Serde<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T> Serde<T> {
+    /// Consumes the `Serde`, returning the inner value.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> From<T> for Serde<T> {
+    fn from(val: T) -> Serde<T> {
+        Serde(val)
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Regex> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        self.0.as_str().serialize(serializer)
+    }
+}
+
+impl Serialize for Serde<Regex> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        self.0.as_str().serialize(serializer)
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Option<Regex>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        match self.0 {
+            Some(ref value) => serializer.serialize_some(&Serde(value)),
+            None => serializer.serialize_none(),
+        }
+    }
+}
+
+impl Serialize for Serde<Option<Regex>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        Serde(&self.0).serialize(serializer)
+    }
 }
