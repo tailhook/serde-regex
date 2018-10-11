@@ -148,8 +148,8 @@ impl<'a> Serialize for Serde<&'a Option<Regex>> {
         where S: Serializer
     {
         match self.0 {
-            Some(ref value) => serializer.serialize_some(&Serde(value)),
-            None => serializer.serialize_none(),
+            &Some(ref value) => serializer.serialize_some(&Serde(value)),
+            &None => serializer.serialize_none(),
         }
     }
 }
