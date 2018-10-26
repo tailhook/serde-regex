@@ -167,3 +167,25 @@ impl Serialize for Serde<Option<Regex>> {
         Serde(&self.0).serialize(serializer)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Serde;
+    use regex::Regex;
+    use serde_json::{to_string, from_str};
+
+    const SAMPLE: &str = r#"[a-z"\]]+\d{1,10}""#;
+    const SAMPLE_JSON: &str = r#""[a-z\"\\]]+\\d{1,10}\"""#;
+
+    #[test]
+    fn test_serialize() {
+        let re = Serde(Regex::new(SAMPLE).unwrap());
+        assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+    }
+
+    #[test]
+    fn test_deserialize() {
+        let deserialized: Serde<Regex> = from_str(SAMPLE_JSON).unwrap();
+        assert_eq!(deserialized.as_str(), SAMPLE);
+    }
+}
