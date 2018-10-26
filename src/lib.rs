@@ -36,32 +36,16 @@ extern crate serde;
 extern crate serde_json;
 
 use regex::Regex;
-use std::fmt;
+use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
 
-use serde::de::{Error, Visitor};
+use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A wrapper type which implements `Serialize` and `Deserialize` for
 /// types involving `Regex`
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Serde<T>(pub T);
-
-struct RegexVisitor;
-
-impl<'a> Visitor<'a> for RegexVisitor {
-    type Value = Serde<Regex>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("valid regular expression")
-    }
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        Regex::new(value).map_err(E::custom).map(Serde)
-    }
-}
 
 impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<Regex>>, D::Error>
@@ -80,7 +64,12 @@ impl<'de> Deserialize<'de> for Serde<Regex> {
     where
         D: Deserializer<'de>,
     {
-        d.deserialize_str(RegexVisitor)
+        let s = <Cow<str>>::deserialize(d)?;
+
+        match s.parse() {
+            Ok(regex) => Ok(Serde(regex)),
+            Err(err) => Err(D::Error::custom(err)),
+        }
     }
 }
 
@@ -198,7 +187,10 @@ mod tests {
     #[test]
     fn test_deserialize_some() {
         let deserialized: Serde<Option<Regex>> = from_str(SAMPLE_JSON).unwrap();
-        assert_eq!(deserialized.as_ref().map(|regex| regex.as_str()), Some(SAMPLE));
+        assert_eq!(
+            deserialized.as_ref().map(|regex| regex.as_str()),
+            Some(SAMPLE)
+        );
     }
 
     #[test]
