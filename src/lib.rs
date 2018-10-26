@@ -35,7 +35,6 @@ extern crate serde;
 #[cfg(test)]
 extern crate serde_json;
 
-use regex::Regex;
 use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
 
@@ -47,31 +46,75 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Serde<T>(pub T);
 
-impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
-    fn deserialize<D>(d: D) -> Result<Serde<Option<Regex>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        match Option::<Serde<Regex>>::deserialize(d)? {
-            Some(Serde(regex)) => Ok(Serde(Some(regex))),
-            None => Ok(Serde(None)),
+// These impl relations are hard to express with generics without accidentally
+// including other types, so let's use a macro.
+macro_rules! impl_for_regex {
+    ($Regex:ty) => {
+        impl<'de> Deserialize<'de> for Serde<Option<$Regex>> {
+            fn deserialize<D>(d: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                Ok(Serde(
+                    Option::<Serde<$Regex>>::deserialize(d)?.map(|serde| serde.0),
+                ))
+            }
         }
-    }
+
+        impl<'de> Deserialize<'de> for Serde<$Regex> {
+            fn deserialize<D>(d: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let s = <Cow<str>>::deserialize(d)?;
+
+                match s.parse() {
+                    Ok(regex) => Ok(Serde(regex)),
+                    Err(err) => Err(D::Error::custom(err)),
+                }
+            }
+        }
+
+        impl<'a> Serialize for Serde<&'a $Regex> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                self.0.as_str().serialize(serializer)
+            }
+        }
+
+        impl Serialize for Serde<$Regex> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                self.0.as_str().serialize(serializer)
+            }
+        }
+
+        impl<'a> Serialize for Serde<&'a Option<$Regex>> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                self.0.as_ref().map(Serde).serialize(serializer)
+            }
+        }
+
+        impl Serialize for Serde<Option<$Regex>> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                self.0.as_ref().map(Serde).serialize(serializer)
+            }
+        }
+    };
 }
 
-impl<'de> Deserialize<'de> for Serde<Regex> {
-    fn deserialize<D>(d: D) -> Result<Serde<Regex>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = <Cow<str>>::deserialize(d)?;
-
-        match s.parse() {
-            Ok(regex) => Ok(Serde(regex)),
-            Err(err) => Err(D::Error::custom(err)),
-        }
-    }
-}
+impl_for_regex!(regex::Regex);
+impl_for_regex!(regex::bytes::Regex);
 
 /// Deserialize function, see crate docs to see how to use it
 pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -118,90 +161,61 @@ impl<T> From<T> for Serde<T> {
     }
 }
 
-impl<'a> Serialize for Serde<&'a Regex> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.as_str().serialize(serializer)
-    }
-}
-
-impl Serialize for Serde<Regex> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.as_str().serialize(serializer)
-    }
-}
-
-impl<'a> Serialize for Serde<&'a Option<Regex>> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self.0 {
-            &Some(ref value) => serializer.serialize_some(&Serde(value)),
-            &None => serializer.serialize_none(),
-        }
-    }
-}
-
-impl Serialize for Serde<Option<Regex>> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        Serde(&self.0).serialize(serializer)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::Serde;
-    use regex::Regex;
-    use serde_json::{to_string, from_str};
+    use serde_json::{from_str, to_string};
 
     const SAMPLE: &str = r#"[a-z"\]]+\d{1,10}""#;
     const SAMPLE_JSON: &str = r#""[a-z\"\\]]+\\d{1,10}\"""#;
 
-    #[test]
-    fn test_serialize() {
-        let re = Serde(Regex::new(SAMPLE).unwrap());
-        assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+    macro_rules! test_type {
+        ($Regex:ty as $name:ident) => {
+            mod $name {
+                use super::*;
+
+                #[test]
+                fn test_serialize() {
+                    let re = Serde(<$Regex>::new(SAMPLE).unwrap());
+                    assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+                }
+
+                #[test]
+                fn test_deserialize() {
+                    let deserialized: Serde<$Regex> = from_str(SAMPLE_JSON).unwrap();
+                    assert_eq!(deserialized.as_str(), SAMPLE);
+                }
+
+                #[test]
+                fn test_serialize_some() {
+                    let re = Serde(Some(<$Regex>::new(SAMPLE).unwrap()));
+                    assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+                }
+
+                #[test]
+                fn test_deserialize_some() {
+                    let deserialized: Serde<Option<$Regex>> = from_str(SAMPLE_JSON).unwrap();
+                    assert_eq!(
+                        deserialized.as_ref().map(|regex| regex.as_str()),
+                        Some(SAMPLE)
+                    );
+                }
+
+                #[test]
+                fn test_serialize_none() {
+                    let re = Serde(None::<$Regex>);
+                    assert_eq!(to_string(&re).unwrap(), "null");
+                }
+
+                #[test]
+                fn test_deserialize_none() {
+                    let deserialized: Serde<Option<$Regex>> = from_str("null").unwrap();
+                    assert_eq!(deserialized.as_ref().map(|regex| regex.as_str()), None);
+                }
+            }
+        };
     }
 
-    #[test]
-    fn test_deserialize() {
-        let deserialized: Serde<Regex> = from_str(SAMPLE_JSON).unwrap();
-        assert_eq!(deserialized.as_str(), SAMPLE);
-    }
-
-    #[test]
-    fn test_serialize_some() {
-        let re = Serde(Some(Regex::new(SAMPLE).unwrap()));
-        assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
-    }
-
-    #[test]
-    fn test_deserialize_some() {
-        let deserialized: Serde<Option<Regex>> = from_str(SAMPLE_JSON).unwrap();
-        assert_eq!(
-            deserialized.as_ref().map(|regex| regex.as_str()),
-            Some(SAMPLE)
-        );
-    }
-
-    #[test]
-    fn test_serialize_none() {
-        let re = Serde(None);
-        assert_eq!(to_string(&re).unwrap(), "null");
-    }
-
-    #[test]
-    fn test_deserialize_none() {
-        let deserialized: Serde<Option<Regex>> = from_str("null").unwrap();
-        assert_eq!(deserialized.as_ref().map(|regex| regex.as_str()), None);
-    }
+    test_type!(::regex::Regex as regex);
+    test_type!(::regex::bytes::Regex as bytes_regex);
 }
