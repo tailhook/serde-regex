@@ -175,42 +175,24 @@ mod tests {
                 use super::*;
 
                 #[test]
-                fn test_serialize() {
-                    let re = Serde(<$Regex>::new(SAMPLE).unwrap());
+                fn test_simple() {
+                    let re: Serde<$Regex> = from_str(SAMPLE_JSON).unwrap();
+                    assert_eq!(re.as_str(), SAMPLE);
                     assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
                 }
 
                 #[test]
-                fn test_deserialize() {
-                    let deserialized: Serde<$Regex> = from_str(SAMPLE_JSON).unwrap();
-                    assert_eq!(deserialized.as_str(), SAMPLE);
-                }
-
-                #[test]
-                fn test_serialize_some() {
-                    let re = Serde(Some(<$Regex>::new(SAMPLE).unwrap()));
+                fn test_option_some() {
+                    let re: Serde<Option<$Regex>> = from_str(SAMPLE_JSON).unwrap();
+                    assert_eq!(re.as_ref().map(|regex| regex.as_str()), Some(SAMPLE));
                     assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
                 }
 
                 #[test]
-                fn test_deserialize_some() {
-                    let deserialized: Serde<Option<$Regex>> = from_str(SAMPLE_JSON).unwrap();
-                    assert_eq!(
-                        deserialized.as_ref().map(|regex| regex.as_str()),
-                        Some(SAMPLE)
-                    );
-                }
-
-                #[test]
-                fn test_serialize_none() {
-                    let re = Serde(None::<$Regex>);
+                fn test_option_none() {
+                    let re: Serde<Option<$Regex>> = from_str("null").unwrap();
+                    assert!(re.is_none());
                     assert_eq!(to_string(&re).unwrap(), "null");
-                }
-
-                #[test]
-                fn test_deserialize_none() {
-                    let deserialized: Serde<Option<$Regex>> = from_str("null").unwrap();
-                    assert_eq!(deserialized.as_ref().map(|regex| regex.as_str()), None);
                 }
             }
         };
