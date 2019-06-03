@@ -12,7 +12,7 @@
 //!
 //! use regex::Regex;
 //! use serde::{Deserialize, Serialize};
-//! 
+//!
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Timestamps {
@@ -72,6 +72,20 @@ impl<'de> Deserialize<'de> for Serde<Regex> {
         D: Deserializer<'de>,
     {
         d.deserialize_str(RegexVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for Serde<Vec<Regex>> {
+    fn deserialize<D>(d: D) -> Result<Serde<Vec<Regex>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(Serde(
+            Vec::<Serde<Regex>>::deserialize(d)?
+                .into_iter()
+                .map(|ele| ele.0)
+                .collect::<Vec<Regex>>(),
+        ))
     }
 }
 
@@ -156,5 +170,27 @@ impl Serialize for Serde<Option<Regex>> {
         S: Serializer,
     {
         Serde(&self.0).serialize(serializer)
+    }
+}
+
+impl Serialize for Serde<Vec<Regex>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        Serde(&self.0).serialize(serializer)
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Vec<Regex>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        for element in self.0 {
+            seq.serialize_element(&Serde(element))?;
+        }
+        seq.end()
     }
 }
