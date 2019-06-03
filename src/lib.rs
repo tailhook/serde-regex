@@ -26,11 +26,11 @@
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 
+use regex::Regex;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use regex::Regex;
 
-use serde::de::{Visitor, Error};
+use serde::de::{Error, Visitor};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
 /// A wrapper type which implements `Serialize` and `Deserialize` for
@@ -47,7 +47,8 @@ impl<'a> Visitor<'a> for RegexVisitor {
         formatter.write_str("valid regular expression")
     }
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where E: Error
+    where
+        E: Error,
     {
         Regex::new(value).map_err(E::custom).map(Serde)
     }
@@ -55,7 +56,8 @@ impl<'a> Visitor<'a> for RegexVisitor {
 
 impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<Regex>>, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         match Option::<Serde<Regex>>::deserialize(d)? {
             Some(Serde(regex)) => Ok(Serde(Some(regex))),
@@ -66,26 +68,27 @@ impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
 
 impl<'de> Deserialize<'de> for Serde<Regex> {
     fn deserialize<D>(d: D) -> Result<Serde<Regex>, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         d.deserialize_str(RegexVisitor)
     }
 }
 
-
 /// Deserialize function, see crate docs to see how to use it
-pub fn deserialize<'de, T, D>(deserializer: D)
-    -> Result<T, D::Error>
-    where D: Deserializer<'de>,
-          Serde<T>: Deserialize<'de>,
+pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    Serde<T>: Deserialize<'de>,
 {
     Serde::deserialize(deserializer).map(|x| x.0)
 }
 
 /// Deserialize function, see crate docs to see how to use it
 pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer,
-          for<'a> Serde<&'a T>: Serialize,
+where
+    S: Serializer,
+    for<'a> Serde<&'a T>: Serialize,
 {
     Serde(value).serialize(serializer)
 }
@@ -119,7 +122,8 @@ impl<T> From<T> for Serde<T> {
 
 impl<'a> Serialize for Serde<&'a Regex> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         self.0.as_str().serialize(serializer)
     }
@@ -127,7 +131,8 @@ impl<'a> Serialize for Serde<&'a Regex> {
 
 impl Serialize for Serde<Regex> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         self.0.as_str().serialize(serializer)
     }
@@ -135,7 +140,8 @@ impl Serialize for Serde<Regex> {
 
 impl<'a> Serialize for Serde<&'a Option<Regex>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         match self.0 {
             &Some(ref value) => serializer.serialize_some(&Serde(value)),
@@ -146,7 +152,8 @@ impl<'a> Serialize for Serde<&'a Option<Regex>> {
 
 impl Serialize for Serde<Option<Regex>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         Serde(&self.0).serialize(serializer)
     }
