@@ -216,9 +216,12 @@ impl<'a> Serialize for Serde<&'a Vec<Regex>> {
 
 #[cfg(test)]
 mod test {
-    use serde_json::{json, from_value};
-    use regex::Regex;
+    use serde_json::{json, from_value, from_str, to_string};
+    use regex::{Regex};
     use crate::Serde;
+
+    const SAMPLE: &str = r#"[a-z"\]]+\d{1,10}""#;
+    const SAMPLE_JSON: &str = r#""[a-z\"\\]]+\\d{1,10}\"""#;
 
     #[test]
     fn test_vec() -> Result<(), Box<std::error::Error>> {
@@ -228,5 +231,26 @@ mod test {
         assert!(vec.0[1].as_str() == "c?d");
         assert!(vec.len() == 2);
         Ok(())
+    }
+
+    #[test]
+    fn test_simple() {
+        let re: Serde<Regex> = from_str(SAMPLE_JSON).unwrap();
+        assert_eq!(re.as_str(), SAMPLE);
+        assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+    }
+
+    #[test]
+    fn test_option_some() {
+        let re: Serde<Option<Regex>> = from_str(SAMPLE_JSON).unwrap();
+        assert_eq!(re.as_ref().map(|regex| regex.as_str()), Some(SAMPLE));
+        assert_eq!(to_string(&re).unwrap(), SAMPLE_JSON);
+    }
+
+    #[test]
+    fn test_option_none() {
+        let re: Serde<Option<Regex>> = from_str("null").unwrap();
+        assert!(re.is_none());
+        assert_eq!(to_string(&re).unwrap(), "null");
     }
 }
