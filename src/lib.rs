@@ -29,6 +29,7 @@
 
 use regex::Regex;
 use std::fmt;
+use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
 
 use serde::de::{Error, Visitor};
@@ -40,22 +41,7 @@ use serde::{Deserialize, Deserializer, de::SeqAccess};
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Serde<T>(pub T);
 
-struct RegexVisitor;
 struct RegexVecVisitor;
-
-impl<'a> Visitor<'a> for RegexVisitor {
-    type Value = Serde<Regex>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("valid regular expression")
-    }
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: Error,
-    {
-        Regex::new(value).map_err(E::custom).map(Serde)
-    }
-}
 
 impl<'a> Visitor<'a> for RegexVecVisitor {
     type Value = Serde<Vec<Regex>>;
@@ -95,7 +81,12 @@ impl<'de> Deserialize<'de> for Serde<Regex> {
     where
         D: Deserializer<'de>,
     {
-        d.deserialize_str(RegexVisitor)
+        let s = <Cow<str>>::deserialize(d)?;
+
+        match s.parse() {
+            Ok(regex) => Ok(Serde(regex)),
+            Err(err) => Err(D::Error::custom(err)),
+        }
     }
 }
 
