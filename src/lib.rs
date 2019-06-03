@@ -32,7 +32,8 @@ use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 use serde::de::{Error, Visitor};
-use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{ser::SerializeSeq, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, de::SeqAccess};
 
 /// A wrapper type which implements `Serialize` and `Deserialize` for
 /// types involving `Regex`
@@ -40,6 +41,7 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer}
 pub struct Serde<T>(pub T);
 
 struct RegexVisitor;
+struct RegexVecVisitor;
 
 impl<'a> Visitor<'a> for RegexVisitor {
     type Value = Serde<Regex>;
@@ -52,6 +54,27 @@ impl<'a> Visitor<'a> for RegexVisitor {
         E: Error,
     {
         Regex::new(value).map_err(E::custom).map(Serde)
+    }
+}
+
+impl<'a> Visitor<'a> for RegexVecVisitor {
+    type Value = Serde<Vec<Regex>>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("valid sequence")
+    }
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'a>,
+    {
+        let mut vec = match seq.size_hint() {
+            Some(size) => Vec::with_capacity(size),
+            None => Vec::new(),
+        };
+        while let Some(Serde(el)) = seq.next_element()? {
+            vec.push(el);
+        }
+        return Ok(Serde(vec));
     }
 }
 
@@ -81,12 +104,7 @@ impl<'de> Deserialize<'de> for Serde<Vec<Regex>> {
     where
         D: Deserializer<'de>,
     {
-        Ok(Serde(
-            Vec::<Serde<Regex>>::deserialize(d)?
-                .into_iter()
-                .map(|ele| ele.0)
-                .collect::<Vec<Regex>>(),
-        ))
+        d.deserialize_seq(RegexVecVisitor)
     }
 }
 
@@ -193,5 +211,22 @@ impl<'a> Serialize for Serde<&'a Vec<Regex>> {
             seq.serialize_element(&Serde(element))?;
         }
         seq.end()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use serde_json::{json, from_value};
+    use regex::Regex;
+    use crate::Serde;
+
+    #[test]
+    fn test_vec() -> Result<(), Box<std::error::Error>> {
+        let json = json!(["a.*b", "c?d"]);
+        let vec: Serde<Vec<Regex>> = from_value(json)?;
+        assert!(vec.0[0].as_str() == "a.*b");
+        assert!(vec.0[1].as_str() == "c?d");
+        assert!(vec.len() == 2);
+        Ok(())
     }
 }
