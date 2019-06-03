@@ -12,6 +12,7 @@
 //!
 //! use regex::Regex;
 //! use serde::{Deserialize, Serialize};
+//! use serde_derive::{Serialize, Deserialize};
 //!
 //!
 //! #[derive(Serialize, Deserialize)]
