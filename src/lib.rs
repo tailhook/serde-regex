@@ -9,14 +9,10 @@
 //! # Example
 //!
 //! ```rust
-//! #[macro_use]
-//! extern crate serde_derive;
-//!
-//! extern crate serde;
-//! extern crate regex;
-//! extern crate serde_regex;
 //!
 //! use regex::Regex;
+//! use serde::{Deserialize, Serialize};
+//! 
 //!
 //! #[derive(Serialize, Deserialize)]
 //! struct Timestamps {
@@ -29,26 +25,20 @@
 //! ```
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
-extern crate serde;
-extern crate regex;
-
-#[cfg(test)] extern crate serde_json;
 
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use regex::Regex;
 
 use serde::de::{Visitor, Error};
-use serde::{Deserializer, Serializer, Deserialize, Serialize};
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 
 /// A wrapper type which implements `Serialize` and `Deserialize` for
 /// types involving `Regex`
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Serde<T>(pub T);
 
-
 struct RegexVisitor;
-
 
 impl<'a> Visitor<'a> for RegexVisitor {
     type Value = Serde<Regex>;
