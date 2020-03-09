@@ -121,6 +121,30 @@ impl<'de> Deserialize<'de> for Serde<Vec<Regex>> {
     }
 }
 
+impl<'de> Deserialize<'de> for Serde<Option<Vec<bytes::Regex>>> {
+    fn deserialize<D>(d: D) -> Result<Serde<Option<Vec<bytes::Regex>>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+         match Option::<Serde<Vec<bytes::Regex>>>::deserialize(d)? {
+            Some(Serde(regex)) => Ok(Serde(Some(regex))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Serde<Option<Vec<Regex>>> {
+    fn deserialize<D>(d: D) -> Result<Serde<Option<Vec<Regex>>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+         match Option::<Serde<Vec<Regex>>>::deserialize(d)? {
+            Some(Serde(regex)) => Ok(Serde(Some(regex))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Serde<Option<bytes::Regex>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<bytes::Regex>>, D::Error>
     where
@@ -332,7 +356,7 @@ mod test {
     const SAMPLE_JSON: &str = r#""[a-z\"\\]]+\\d{1,10}\"""#;
 
     #[test]
-    fn test_vec() -> Result<(), Box<std::error::Error>> {
+    fn test_vec() -> Result<(), Box<dyn std::error::Error>> {
         let json = json!(["a.*b", "c?d"]);
         let vec: Serde<Vec<Regex>> = from_value(json)?;
         assert!(vec.0[0].as_str() == "a.*b");
@@ -363,12 +387,41 @@ mod test {
     }
 
     #[test]
-    fn test_vec_bytes() -> Result<(), Box<std::error::Error>> {
+    fn test_vec_bytes() -> Result<(), Box<dyn std::error::Error>> {
         let json = json!(["a.*b", "c?d"]);
         let vec: Serde<Vec<bytes::Regex>> = from_value(json)?;
         assert!(vec.0[0].as_str() == "a.*b");
         assert!(vec.0[1].as_str() == "c?d");
         assert!(vec.len() == 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_option_vec() -> Result<(), Box<dyn std::error::Error>> {
+        let json = json!(["a.*b", "c?d"]);
+        let vec: Serde<Option<Vec<Regex>>> = from_value(json)?;
+        assert!(vec.is_some());
+        let v = vec.0.unwrap();
+        assert!(v[0].as_str() == "a.*b");
+        assert!(v[1].as_str() == "c?d");
+        assert!(v.len() == 2);
+        Ok(())
+    }
+    #[test]
+    fn test_option_vec_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let json = json!(["a.*b", "c?d"]);
+        let vec: Serde<Option<Vec<bytes::Regex>>> = from_value(json)?;
+        assert!(vec.is_some());
+        let v = vec.0.unwrap();
+        assert!(v[0].as_str() == "a.*b");
+        assert!(v[1].as_str() == "c?d");
+        assert!(v.len() == 2);
+        Ok(())
+    }
+    #[test]
+    fn test_option_vec_none() -> Result<(), Box<dyn std::error::Error>> {
+        let vec: Serde<Option<Vec<bytes::Regex>>> = from_str("null")?;
+        assert!(vec.is_none());
         Ok(())
     }
 
