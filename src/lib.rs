@@ -27,7 +27,7 @@
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
 
-use regex::{Regex, bytes};
+use regex::{Regex, RegexSet, bytes};
 use std::fmt;
 use std::borrow::Cow;
 use std::ops::{Deref, DerefMut};
@@ -112,6 +112,20 @@ impl<'de> Deserialize<'de> for Serde<Regex> {
     }
 }
 
+impl<'de> Deserialize<'de> for Serde<RegexSet> {
+    fn deserialize<D>(d: D) -> Result<Serde<RegexSet>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let regexes = <Vec<Cow<str>>>::deserialize(d)?;
+
+        match RegexSet::new(regexes) {
+            Ok(regexset) => Ok(Serde(regexset)),
+            Err(err) => Err(D::Error::custom(err)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Serde<Vec<Regex>> {
     fn deserialize<D>(d: D) -> Result<Serde<Vec<Regex>>, D::Error>
     where
@@ -166,6 +180,20 @@ impl<'de> Deserialize<'de> for Serde<bytes::Regex> {
 
         match s.parse() {
             Ok(regex) => Ok(Serde(regex)),
+            Err(err) => Err(D::Error::custom(err)),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Serde<bytes::RegexSet> {
+    fn deserialize<D>(d: D) -> Result<Serde<bytes::RegexSet>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let regexes = <Vec<Cow<str>>>::deserialize(d)?;
+
+        match bytes::RegexSet::new(regexes) {
+            Ok(regexset) => Ok(Serde(regexset)),
             Err(err) => Err(D::Error::custom(err)),
         }
     }
@@ -239,6 +267,15 @@ impl Serialize for Serde<Regex> {
         S: Serializer,
     {
         self.0.as_str().serialize(serializer)
+    }
+}
+
+impl Serialize for Serde<RegexSet> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.patterns().serialize(serializer)
     }
 }
 
@@ -324,6 +361,15 @@ impl Serialize for Serde<Option<bytes::Regex>> {
     }
 }
 
+impl Serialize for Serde<bytes::RegexSet> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.patterns().serialize(serializer)
+    }
+}
+
 impl Serialize for Serde<Vec<bytes::Regex>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -348,12 +394,28 @@ impl<'a> Serialize for Serde<&'a Vec<bytes::Regex>> {
 
 #[cfg(test)]
 mod test {
-    use serde_json::{json, from_value, from_str, to_string};
-    use regex::{Regex, bytes};
+    use serde_json::{json, from_value, from_str, to_string, to_value};
+    use regex::{Regex, RegexSet, bytes};
     use crate::Serde;
 
     const SAMPLE: &str = r#"[a-z"\]]+\d{1,10}""#;
     const SAMPLE_JSON: &str = r#""[a-z\"\\]]+\\d{1,10}\"""#;
+
+    #[test]
+    fn test_set() -> Result<(), Box<dyn std::error::Error>> {
+        let regexes = &[
+            "my(regex)?",
+            "other[regex]+",
+        ];
+        let json = json!(regexes);
+        let set: Serde<RegexSet> = from_value(json.clone())?;
+        assert_eq!(set.patterns(), regexes);
+        assert_eq!(
+            to_value(set).expect("serialization error"),
+            json
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_vec() -> Result<(), Box<dyn std::error::Error>> {
@@ -384,6 +446,22 @@ mod test {
         let re: Serde<Option<Regex>> = from_str("null").unwrap();
         assert!(re.is_none());
         assert_eq!(to_string(&re).unwrap(), "null");
+    }
+
+    #[test]
+    fn test_set_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let regexes = &[
+            "regex.*test",
+            "test( )??regex+",
+        ];
+        let json = json!(regexes);
+        let set: Serde<bytes::RegexSet> = from_value(json.clone())?;
+        assert_eq!(set.patterns(), regexes);
+        assert_eq!(
+            to_value(set).expect("serialization error"),
+            json
+        );
+        Ok(())
     }
 
     #[test]
