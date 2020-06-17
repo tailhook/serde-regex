@@ -9,7 +9,7 @@ keywords = ["serde", "regex"]
 categories = ["encoding"]
 homepage = "https://github.com/tailhook/serde-regex"
 documentation = "https://docs.rs/serde_regex"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["paul@colomiets.name"]
 edition = "2018"
 
