@@ -228,7 +228,7 @@ where
     Serde::deserialize(deserializer).map(|x| x.0)
 }
 
-/// Deserialize function, see crate docs to see how to use it
+/// Serialize function, see crate docs to see how to use it
 pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
