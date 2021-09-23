@@ -112,6 +112,18 @@ impl<'de> Deserialize<'de> for Serde<Regex> {
     }
 }
 
+impl<'de> Deserialize<'de> for Serde<Option<RegexSet>> {
+    fn deserialize<D>(d: D) -> Result<Serde<Option<RegexSet>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match Option::<Serde<RegexSet>>::deserialize(d)? {
+            Some(Serde(regexset)) => Ok(Serde(Some(regexset))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Serde<RegexSet> {
     fn deserialize<D>(d: D) -> Result<Serde<RegexSet>, D::Error>
     where
@@ -270,6 +282,18 @@ impl Serialize for Serde<Regex> {
     }
 }
 
+impl Serialize for Serde<Option<RegexSet>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.0 {
+            Some(ref value) => value.patterns().serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+}
+
 impl Serialize for Serde<RegexSet> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -414,6 +438,30 @@ mod test {
             to_value(set).expect("serialization error"),
             json
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_option_some() -> Result<(), Box<dyn std::error::Error>> {
+        let regexes = &[
+            "my(regex)?",
+            "other[regex]+",
+        ];
+        let json = json!(regexes);
+        let set: Serde<Option<RegexSet>> = from_value(json.clone())?;
+        assert_eq!(set.as_ref().unwrap().patterns(), regexes);
+        assert_eq!(
+            to_value(set).expect("serialization error"),
+            json
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_option_none() -> Result<(), Box<dyn std::error::Error>> {
+        let set: Serde<Option<RegexSet>> = from_str("null").unwrap();
+        assert!(set.is_none());
+        assert_eq!(to_string(&set).unwrap(), "null");
         Ok(())
     }
 
