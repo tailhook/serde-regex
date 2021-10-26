@@ -28,13 +28,23 @@
 #![warn(missing_debug_implementations)]
 
 use regex::{Regex, RegexSet, bytes};
-use std::fmt;
-use std::borrow::Cow;
-use std::ops::{Deref, DerefMut};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    fmt,
+    hash::{BuildHasher, Hash},
+    marker::PhantomData,
+    ops::{Deref, DerefMut}
+};
 
-use serde::de::{Error, Visitor};
-use serde::{ser::SerializeSeq, Serialize, Serializer};
-use serde::{Deserialize, Deserializer, de::SeqAccess};
+use serde::{
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
+    de::{Error, MapAccess, SeqAccess, Visitor},
+    ser::{SerializeMap, SerializeSeq}
+};
 
 /// A wrapper type which implements `Serialize` and `Deserialize` for
 /// types involving `Regex`
@@ -85,6 +95,74 @@ impl<'a> Visitor<'a> for BytesRegexVecVisitor {
         return Ok(Serde(vec));
     }
 }
+
+
+struct RegexHashMapVisitor<K, S>(PhantomData<(K, S)>);
+struct BytesRegexHashMapVisitor<K, S>(PhantomData<(K, S)>);
+
+impl<K, S> Default for RegexHashMapVisitor<K, S> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<K, S> Default for BytesRegexHashMapVisitor<K, S> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+
+impl<'a, K, S> Visitor<'a> for RegexHashMapVisitor<K, S>
+where
+    K: Hash + Eq + Deserialize<'a>,
+    S: BuildHasher + Default,
+{
+    type Value = Serde<HashMap<K, Regex, S>>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("valid map")
+    }
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'a>
+    {
+        let mut hashmap = match map.size_hint() {
+            Some(size) => HashMap::with_capacity_and_hasher(size, S::default()),
+            None => HashMap::with_hasher(S::default()),
+        };
+        while let Some((key, Serde(value))) = map.next_entry()? {
+            hashmap.insert(key, value);
+        }
+        return Ok(Serde(hashmap));
+    }
+}
+
+impl<'a, K, S> Visitor<'a> for BytesRegexHashMapVisitor<K, S>
+where
+    K: Hash + Eq + Deserialize<'a>,
+    S: BuildHasher + Default,
+{
+    type Value = Serde<HashMap<K, bytes::Regex, S>>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("valid map")
+    }
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'a>
+    {
+        let mut hashmap = match map.size_hint() {
+            Some(size) => HashMap::with_capacity_and_hasher(size, S::default()),
+            None => HashMap::with_hasher(S::default()),
+        };
+        while let Some((key, Serde(value))) = map.next_entry()? {
+            hashmap.insert(key, value);
+        }
+        return Ok(Serde(hashmap));
+    }
+}
+
 
 impl<'de> Deserialize<'de> for Serde<Option<Regex>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<Regex>>, D::Error>
@@ -147,6 +225,19 @@ impl<'de> Deserialize<'de> for Serde<Vec<Regex>> {
     }
 }
 
+impl<'de, K, S> Deserialize<'de> for Serde<HashMap<K, Regex, S>>
+where
+    K: Hash + Eq + Deserialize<'de>,
+    S: BuildHasher + Default,
+{
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        d.deserialize_map(RegexHashMapVisitor::default())
+    }
+}
+
 impl<'de> Deserialize<'de> for Serde<Option<Vec<bytes::Regex>>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<Vec<bytes::Regex>>>, D::Error>
     where
@@ -159,6 +250,22 @@ impl<'de> Deserialize<'de> for Serde<Option<Vec<bytes::Regex>>> {
     }
 }
 
+impl<'de, K, S> Deserialize<'de> for Serde<Option<HashMap<K, bytes::Regex, S>>>
+where
+    K: Hash + Eq + Deserialize<'de>,
+    S: BuildHasher + Default,
+{
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+         match Option::<Serde<HashMap<K, bytes::Regex, S>>>::deserialize(d)? {
+            Some(Serde(map)) => Ok(Serde(Some(map))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Serde<Option<Vec<Regex>>> {
     fn deserialize<D>(d: D) -> Result<Serde<Option<Vec<Regex>>>, D::Error>
     where
@@ -166,6 +273,22 @@ impl<'de> Deserialize<'de> for Serde<Option<Vec<Regex>>> {
     {
          match Option::<Serde<Vec<Regex>>>::deserialize(d)? {
             Some(Serde(regex)) => Ok(Serde(Some(regex))),
+            None => Ok(Serde(None)),
+        }
+    }
+}
+
+impl<'de, K, S> Deserialize<'de> for Serde<Option<HashMap<K, Regex, S>>>
+where
+    K: Hash + Eq + Deserialize<'de>,
+    S: BuildHasher + Default,
+{
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+         match Option::<Serde<HashMap<K, Regex, S>>>::deserialize(d)? {
+            Some(Serde(map)) => Ok(Serde(Some(map))),
             None => Ok(Serde(None)),
         }
     }
@@ -217,6 +340,18 @@ impl<'de> Deserialize<'de> for Serde<Vec<bytes::Regex>> {
         D: Deserializer<'de>,
     {
         d.deserialize_seq(BytesRegexVecVisitor)
+    }
+}
+impl<'de, K, S> Deserialize<'de> for Serde<HashMap<K, bytes::Regex, S>>
+where
+    K: Hash + Eq + Deserialize<'de>,
+    S: BuildHasher + Default,
+{
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        d.deserialize_map(BytesRegexHashMapVisitor::default())
     }
 }
 /// Deserialize function, see crate docs to see how to use it
@@ -333,6 +468,19 @@ impl Serialize for Serde<Vec<Regex>> {
     }
 }
 
+impl<K, S> Serialize for Serde<HashMap<K, Regex, S>>
+where
+    K: Hash + Eq + Serialize,
+    S: BuildHasher + Default,
+{
+    fn serialize<Se>(&self, serializer: Se) -> Result<Se::Ok, Se::Error>
+    where
+        Se: Serializer,
+    {
+        Serde(&self.0).serialize(serializer)
+    }
+}
+
 impl<'a> Serialize for Serde<&'a Vec<Regex>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -343,6 +491,23 @@ impl<'a> Serialize for Serde<&'a Vec<Regex>> {
             seq.serialize_element(&Serde(element))?;
         }
         seq.end()
+    }
+}
+
+impl<'a, K, S> Serialize for Serde<&'a HashMap<K, Regex, S>>
+where
+    K: Hash + Eq + Serialize,
+    S: BuildHasher + Default,
+{
+    fn serialize<Se>(&self, serializer: Se) -> Result<Se::Ok, Se::Error>
+    where
+        Se: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.len()))?;
+        for (key, value) in self.0.iter() {
+            map.serialize_entry(key, &Serde(value))?;
+        }
+        map.end()
     }
 }
 
@@ -403,6 +568,19 @@ impl Serialize for Serde<Vec<bytes::Regex>> {
     }
 }
 
+impl<K, S> Serialize for Serde<HashMap<K, bytes::Regex, S>>
+where
+    K: Hash + Eq + Serialize,
+    S: BuildHasher + Default,
+{
+    fn serialize<Se>(&self, serializer: Se) -> Result<Se::Ok, Se::Error>
+    where
+        Se: Serializer,
+    {
+        Serde(&self.0).serialize(serializer)
+    }
+}
+
 impl<'a> Serialize for Serde<&'a Vec<bytes::Regex>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -416,8 +594,27 @@ impl<'a> Serialize for Serde<&'a Vec<bytes::Regex>> {
     }
 }
 
+impl<'a, K, S> Serialize for Serde<&'a HashMap<K, bytes::Regex, S>>
+where
+    K: Hash + Eq + Serialize,
+    S: BuildHasher + Default,
+{
+    fn serialize<Se>(&self, serializer: Se) -> Result<Se::Ok, Se::Error>
+    where
+        Se: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.len()))?;
+        for (key, value) in self.0.iter() {
+            map.serialize_entry(key, &Serde(value))?;
+        }
+        map.end()
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use serde_json::{json, from_value, from_str, to_string, to_value};
     use regex::{Regex, RegexSet, bytes};
     use crate::Serde;
@@ -476,6 +673,16 @@ mod test {
     }
 
     #[test]
+    fn test_hashmap() -> Result<(), Box<dyn std::error::Error>> {
+        let json = json!({"a": "a.*b", "b": "c?d"});
+        let map: Serde<HashMap<String, Regex>> = from_value(json)?;
+        assert!(map.0["a"].as_str() == "a.*b");
+        assert!(map.0["b"].as_str() == "c?d");
+        assert!(map.len() == 2);
+        Ok(())
+    }
+
+    #[test]
     fn test_simple() {
         let re: Serde<Regex> = from_str(SAMPLE_JSON).unwrap();
         assert_eq!(re.as_str(), SAMPLE);
@@ -523,6 +730,17 @@ mod test {
     }
 
     #[test]
+    fn test_hashmap_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        // let json = json!(["a.*b", "c?d"]);
+        let json = json!({ "c": "a.*b", "d": "c?d" });
+        let map: Serde<HashMap<String, bytes::Regex>> = from_value(json)?;
+        assert!(map.0["c"].as_str() == "a.*b");
+        assert!(map.0["d"].as_str() == "c?d");
+        assert!(map.len() == 2);
+        Ok(())
+    }
+
+    #[test]
     fn test_option_vec() -> Result<(), Box<dyn std::error::Error>> {
         let json = json!(["a.*b", "c?d"]);
         let vec: Serde<Option<Vec<Regex>>> = from_value(json)?;
@@ -530,6 +748,17 @@ mod test {
         let v = vec.0.unwrap();
         assert!(v[0].as_str() == "a.*b");
         assert!(v[1].as_str() == "c?d");
+        assert!(v.len() == 2);
+        Ok(())
+    }
+    #[test]
+    fn test_option_hashmap() -> Result<(), Box<dyn std::error::Error>> {
+        let json = json!({"a": "a.*b", "b": "c?d"});
+        let map: Serde<Option<HashMap<String, Regex>>> = from_value(json)?;
+        assert!(map.is_some());
+        let v = map.0.unwrap();
+        assert!(v["a"].as_str() == "a.*b");
+        assert!(v["b"].as_str() == "c?d");
         assert!(v.len() == 2);
         Ok(())
     }
@@ -545,9 +774,26 @@ mod test {
         Ok(())
     }
     #[test]
+    fn test_option_hashamp_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let json = json!({"a": "a.*b", "b": "c?d"});
+        let map: Serde<Option<HashMap<String, bytes::Regex>>> = from_value(json)?;
+        assert!(map.is_some());
+        let v = map.0.unwrap();
+        assert!(v["a"].as_str() == "a.*b");
+        assert!(v["b"].as_str() == "c?d");
+        assert!(v.len() == 2);
+        Ok(())
+    }
+    #[test]
     fn test_option_vec_none() -> Result<(), Box<dyn std::error::Error>> {
         let vec: Serde<Option<Vec<bytes::Regex>>> = from_str("null")?;
         assert!(vec.is_none());
+        Ok(())
+    }
+    #[test]
+    fn test_option_hashmap_none() -> Result<(), Box<dyn std::error::Error>> {
+        let map: Serde<Option<HashMap<String, bytes::Regex>>> = from_str("null")?;
+        assert!(map.is_none());
         Ok(())
     }
 
