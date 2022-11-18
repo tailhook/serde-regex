@@ -494,6 +494,18 @@ impl<'a> Serialize for Serde<&'a Vec<Regex>> {
     }
 }
 
+impl<'a> Serialize for Serde<&'a Option<Vec<Regex>>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.0 {
+            &Some(ref value) => serializer.serialize_some(&Serde(value)),
+            &None => serializer.serialize_none(),
+        }
+    }
+}
+
 impl<'a, K, S> Serialize for Serde<&'a HashMap<K, Regex, S>>
 where
     K: Hash + Eq + Serialize,
@@ -565,6 +577,18 @@ impl Serialize for Serde<Vec<bytes::Regex>> {
         S: Serializer,
     {
         Serde(&self.0).serialize(serializer)
+    }
+}
+
+impl<'a> Serialize for Serde<&'a Option<Vec<bytes::Regex>>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.0 {
+            &Some(ref value) => serializer.serialize_some(&Serde(value)),
+            &None => serializer.serialize_none(),
+        }
     }
 }
 
